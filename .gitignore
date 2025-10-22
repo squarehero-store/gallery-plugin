@@ -1,0 +1,5 @@
+# Ignore everything except build folder
+*
+!.gitignore
+!build/
+!build/**
