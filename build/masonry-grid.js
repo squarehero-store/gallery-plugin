@@ -972,7 +972,7 @@
                     borderRadius: 8,
                     shadow: 'none',
                     hoverEffect: 'scale',
-                    cropImages: true
+                    cropImages: false
                 };
             }
 
@@ -984,7 +984,7 @@
                 this.styleSettings.mobileItemGap = 20;
             }
             if (this.styleSettings.cropImages === undefined) {
-                this.styleSettings.cropImages = true;
+                this.styleSettings.cropImages = false;
             }
 
             // Create main container with two columns like Grid Rows
@@ -2021,7 +2021,7 @@
             const cropImagesGroup = document.createElement('div');
             cropImagesGroup.className = 'form-group';
             cropImagesGroup.style.flex = '1';
-            const cropImages = row.cropImages !== undefined ? row.cropImages : true; // Default to true
+            const cropImages = row.cropImages !== undefined ? row.cropImages : false; // Default to false
             cropImagesGroup.innerHTML = `
                 <label class="form-label">Image Fit</label>
                 <div class="crop-images-toggle-container">
