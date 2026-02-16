@@ -1,3 +1,8 @@
+/*!
+ * Masonry Grid Gallery Plugin
+ * Version: 0.2.2
+ * Last Updated: 2026-02-16
+ */
 (function() {
     'use strict';
 
@@ -38,6 +43,8 @@
                 { id: '25-50-25', name: '25% / 50% / 25%', items: 3 },
                 { id: '20-40-40', name: '20% / 40% / 40%', items: 3 },
                 { id: '40-40-20', name: '40% / 40% / 20%', items: 3 },
+                { id: '40-20-20', name: '40% / 20% / 20%', items: 3 },
+                { id: '20-20-40', name: '20% / 20% / 40%', items: 3 },
                 { id: '25-25-25-25', name: '25% / 25% / 25% / 25%', items: 4 },
                 // Advanced Layout Options
                 { id: '70-15-15', name: 'Hero + Grid', items: 3 },
@@ -1015,19 +1022,19 @@
             spacingSection.appendChild(spacingTitle);
 
             // Row Gap Control
-            const rowGapControl = this.createRangeControl('Row Gap', 'rowGap', this.styleSettings.rowGap, 0, 100, 'px');
+            const rowGapControl = this.createRangeControl('Row Gap', 'rowGap', this.styleSettings.rowGap, 0, 300, 'px');
             spacingSection.appendChild(rowGapControl);
 
             // Item Gap Control
-            const itemGapControl = this.createRangeControl('Item Gap', 'itemGap', this.styleSettings.itemGap, 0, 100, 'px');
+            const itemGapControl = this.createRangeControl('Item Gap', 'itemGap', this.styleSettings.itemGap, 0, 300, 'px');
             spacingSection.appendChild(itemGapControl);
 
             // Mobile Row Gap Control
-            const mobileRowGapControl = this.createRangeControl('Mobile Row Gap', 'mobileRowGap', this.styleSettings.mobileRowGap || 30, 0, 100, 'px');
+            const mobileRowGapControl = this.createRangeControl('Mobile Row Gap', 'mobileRowGap', this.styleSettings.mobileRowGap || 30, 0, 300, 'px');
             spacingSection.appendChild(mobileRowGapControl);
 
             // Mobile Item Gap Control
-            const mobileItemGapControl = this.createRangeControl('Mobile Item Gap', 'mobileItemGap', this.styleSettings.mobileItemGap || 20, 0, 100, 'px');
+            const mobileItemGapControl = this.createRangeControl('Mobile Item Gap', 'mobileItemGap', this.styleSettings.mobileItemGap || 20, 0, 300, 'px');
             spacingSection.appendChild(mobileItemGapControl);
 
             stylesContainer.appendChild(spacingSection);
@@ -1529,6 +1536,8 @@
                 { id: '25-25-50', name: 'Right + Stack', preview: this.createLayoutPreview('25-25-50', 'builder') },
                 { id: '20-40-40', name: '20 / 40 / 40', preview: this.createLayoutPreview('20-40-40', 'builder') },
                 { id: '40-40-20', name: '40 / 40 / 20', preview: this.createLayoutPreview('40-40-20', 'builder') },
+                { id: '40-20-20', name: '40 / 20 / 20', preview: this.createLayoutPreview('40-20-20', 'builder') },
+                { id: '20-20-40', name: '20 / 20 / 40', preview: this.createLayoutPreview('20-20-40', 'builder') },
                 // Advanced Layouts
                 { id: '70-15-15', name: 'Hero + Grid', preview: this.createLayoutPreview('70-15-15', 'builder') },
                 { id: '60-20-20', name: '50 / 25 / 25', preview: this.createLayoutPreview('60-20-20', 'builder') },
@@ -1639,6 +1648,8 @@
                 '25-50-25': 'Side + Center + Side',
                 '20-40-40': '20 / 40 / 40',
                 '40-40-20': '40 / 40 / 20',
+                '40-20-20': '40 / 20 / 20',
+                '20-20-40': '20 / 20 / 40',
                 '25-25-25-25': '4 Columns',
                 // Advanced Layouts
                 '70-15-15': 'Hero + Grid',
@@ -1698,6 +1709,8 @@
                     '25-50-25': `<div class="${itemClass}" style="flex: 1;"></div><div class="${itemClass}" style="flex: 2;"></div><div class="${itemClass}" style="flex: 1;"></div>`,
                     '20-40-40': `<div class="${itemClass}" style="flex: 1;"></div><div class="${itemClass}" style="flex: 2;"></div><div class="${itemClass}" style="flex: 2;"></div>`,
                     '40-40-20': `<div class="${itemClass}" style="flex: 2;"></div><div class="${itemClass}" style="flex: 2;"></div><div class="${itemClass}" style="flex: 1;"></div>`,
+                    '40-20-20': `<div class="${itemClass}" style="flex: 2;"></div><div class="${itemClass}" style="flex: 1;"></div><div class="${itemClass}" style="flex: 1;"></div>`,
+                    '20-20-40': `<div class="${itemClass}" style="flex: 1;"></div><div class="${itemClass}" style="flex: 1;"></div><div class="${itemClass}" style="flex: 2;"></div>`,
                     '25-25-25-25': `<div class="${itemClass}" style="flex: 1;"></div><div class="${itemClass}" style="flex: 1;"></div><div class="${itemClass}" style="flex: 1;"></div><div class="${itemClass}" style="flex: 1;"></div>`,
                     // Advanced Layouts - keep inline heights for accordion
                     '70-15-15': `<div class="${itemClass}" style="flex: 7; height: 20px;"></div><div class="preview-right-stack" style="flex: 3; display: flex; flex-direction: column; gap: 2px;"><div class="${itemClass}" style="flex: 1; height: 14px;"></div><div class="${itemClass}" style="flex: 1; height: 14px;"></div></div>`,
@@ -2055,6 +2068,8 @@
                 { id: '25-25-50', name: 'Right + Stack' },
                 { id: '20-40-40', name: '20 / 40 / 40' },
                 { id: '40-40-20', name: '40 / 40 / 20' },
+                { id: '40-20-20', name: '40 / 20 / 20' },
+                { id: '20-20-40', name: '20 / 20 / 40' },
                 // Advanced Layouts
                 { id: '70-15-15', name: 'Hero + Grid' },
                 { id: '60-20-20', name: 'Asymmetric Emphasis' },
@@ -3914,6 +3929,8 @@
                     '25-50-25': { items: 3 },
                     '20-40-40': { items: 3 },
                     '40-40-20': { items: 3 },
+                    '40-20-20': { items: 3 },
+                    '20-20-40': { items: 3 },
                     '25-25-25-25': { items: 4 },
                     // Advanced Layouts
                     '70-15-15': { items: 3 },
