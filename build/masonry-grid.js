@@ -1,6 +1,6 @@
 /*!
  * Masonry Grid Gallery Plugin
- * Version: 0.2.2
+ * Version: 0.2.3
  * Last Updated: 2026-02-16
  */
 (function() {
@@ -1585,6 +1585,8 @@
                 '25-50-25': { items: 3 },
                 '20-40-40': { items: 3 },
                 '40-40-20': { items: 3 },
+                '40-20-20': { items: 3 },
+                '20-20-40': { items: 3 },
                 '25-25-25-25': { items: 4 },
                 // Advanced Layouts
                 '70-15-15': { items: 3 },
@@ -2143,6 +2145,8 @@
                 '25-50-25': { items: 3 },
                 '20-40-40': { items: 3 },
                 '40-40-20': { items: 3 },
+                '40-20-20': { items: 3 },
+                '20-20-40': { items: 3 },
                 '25-25-25-25': { items: 4 },
                 // Advanced Layouts
                 '70-15-15': { items: 3 },
