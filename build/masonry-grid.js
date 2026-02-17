@@ -1,6 +1,6 @@
 /*!
  * Masonry Grid Gallery Plugin
- * Version: 0.2.5
+ * Version: 0.2.6
  * Last Updated: 2026-02-18
  */
 (function() {
@@ -310,6 +310,16 @@
                                 item.showPreviewUpload = false;
                                 delete item.previewVideo;
                             }
+                            
+                            this.renderAdminForm();
+                            this.markAsChanged();
+                        }
+                    } else if (toggleType === 'hidePlayIcon') {
+                        // Handle hide play icon toggle
+                        if (this.gridData[rowIndex] && this.gridData[rowIndex].items[itemIndex]) {
+                            const item = this.gridData[rowIndex].items[itemIndex];
+                            const newState = !isCurrentlyActive;
+                            item.hidePlayIcon = newState;
                             
                             this.renderAdminForm();
                             this.markAsChanged();
@@ -2110,6 +2120,13 @@
                                  data-toggle-type="previewVideo">
                                 <div class="toggle-switch-slider"></div>
                                 <span class="toggle-switch-label">Use Preview Video</span>
+                            </div>
+                            <div class="toggle-switch ${item.hidePlayIcon ? 'active' : ''}" 
+                                 data-row-index="${rowIndex}" 
+                                 data-item-index="${itemIndex}"
+                                 data-toggle-type="hidePlayIcon">
+                                <div class="toggle-switch-slider"></div>
+                                <span class="toggle-switch-label">Hide Play Icon</span>
                             </div>
                             ${hasPreviewVideo || item.showPreviewUpload ? `
                                 <div class="preview-video-upload-area" data-row="${rowIndex}" data-item="${itemIndex}">
@@ -4332,7 +4349,9 @@
                 itemElement.appendChild(video);
 
                 // Add play icon overlay for frontend videos (not in admin mode)
-                if (!this.isAdminMode) {
+                // Check if play icon should be hidden
+                const shouldShowPlayIcon = !this.isAdminMode && !item.hidePlayIcon;
+                if (shouldShowPlayIcon) {
                     const playIcon = document.createElement('div');
                     playIcon.className = 'video-play-icon';
                     playIcon.innerHTML = `
