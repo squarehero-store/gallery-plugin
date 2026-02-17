@@ -1,7 +1,7 @@
 /*!
  * Masonry Grid Gallery Plugin
- * Version: 0.2.3
- * Last Updated: 2026-02-16
+ * Version: 0.2.4
+ * Last Updated: 2026-02-17
  */
 (function() {
     'use strict';
@@ -4318,11 +4318,11 @@
                         const hlsScript = document.createElement('script');
                         hlsScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js';
                         hlsScript.onload = () => {
-                            this.setupHLSVideo(video, videoSource);
+                            this.setupHLSVideo(video, videoSource, true, item.metadata);
                         };
                         document.head.appendChild(hlsScript);
                     } else {
-                        this.setupHLSVideo(video, videoSource);
+                        this.setupHLSVideo(video, videoSource, true, item.metadata);
                     }
                 } else {
                     // Regular MP4 or other video format
@@ -5518,16 +5518,43 @@
         }
 
         // Setup HLS video for Squarespace native videos
-        setupHLSVideo(video, videoUrl, autoplay = true) {
+        setupHLSVideo(video, videoUrl, autoplay = true, metadata = null) {
             console.log('🎬 =================================');
             console.log('🎬 Setting up HLS for video:', videoUrl);
             console.log('🎬 Video element:', video);
             console.log('🎬 Current auth token available:', !!this.mediaAuthToken);
             console.log('🎬 Autoplay enabled:', autoplay);
+            console.log('🎬 Video metadata available:', !!metadata);
             
-            const playlistUrl = this.getVideoPlaylistUrl(videoUrl);
+            // Clean up any existing HLS instance to prevent caching issues
+            if (video._hlsInstance) {
+                console.log('🎬 🧹 Destroying existing HLS instance to prevent caching');
+                video._hlsInstance.destroy();
+                video._hlsInstance = null;
+            }
+            
+            // Clear existing video source to prevent blob URL caching
+            if (video.src && video.src.startsWith('blob:')) {
+                console.log('🎬 🧹 Clearing existing blob URL:', video.src);
+                video.src = '';
+                video.load();
+            }
+            
+            let playlistUrl = this.getVideoPlaylistUrl(videoUrl);
             console.log('🎬 Original URL:', videoUrl);
-            console.log('🎬 Playlist URL:', playlistUrl);
+            console.log('🎬 Playlist URL (before cache-bust):', playlistUrl);
+            
+            // Add cache-busting parameter using lastModified timestamp to force browser
+            // to fetch updated video content when videos are replaced in Squarespace
+            if (metadata && metadata.assetData && metadata.assetData.lastModified) {
+                const timestamp = new Date(metadata.assetData.lastModified).getTime();
+                const separator = playlistUrl.includes('?') ? '&' : '?';
+                playlistUrl = `${playlistUrl}${separator}v=${timestamp}`;
+                console.log('🎬 ✅ Added cache-busting with lastModified:', timestamp);
+                console.log('🎬 Playlist URL (with cache-bust):', playlistUrl);
+            } else {
+                console.log('🎬 ⚠️  No metadata available for cache-busting');
+            }
             
             // Check if this is a private video that needs authentication
             // Private videos will have been processed and have an auth token available
@@ -5573,6 +5600,10 @@
                 };
                 
                 const hls = new Hls(hlsConfig);
+                
+                // Store HLS instance on video element for cleanup later
+                video._hlsInstance = hls;
+                
                 hls.loadSource(playlistUrl);
                 hls.attachMedia(video);
                 
@@ -6013,11 +6044,11 @@
                             const hlsScript = document.createElement('script');
                             hlsScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js';
                             hlsScript.onload = () => {
-                                this.setupHLSVideo(video, item.content, false); // Don't autoplay in lightbox
+                                this.setupHLSVideo(video, item.content, false, item.metadata); // Don't autoplay in lightbox
                             };
                             document.head.appendChild(hlsScript);
                         } else {
-                            this.setupHLSVideo(video, item.content, false); // Don't autoplay in lightbox
+                            this.setupHLSVideo(video, item.content, false, item.metadata); // Don't autoplay in lightbox
                         }
                     } else {
                         // Regular MP4 or other video format
