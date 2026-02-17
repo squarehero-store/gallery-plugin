@@ -1,7 +1,7 @@
 /*!
  * Masonry Grid Gallery Plugin
- * Version: 0.2.4
- * Last Updated: 2026-02-17
+ * Version: 0.2.5
+ * Last Updated: 2026-02-18
  */
 (function() {
     'use strict';
@@ -5582,6 +5582,9 @@
                 const hlsConfig = {
                     enableWorker: true,
                     lowLatencyMode: true,
+                    // Lock to highest quality to prevent color shifts from quality switching
+                    startLevel: -1, // Start with best quality
+                    capLevelToPlayerSize: false, // Don't limit based on player size
                     xhrSetup: (xhr, url) => {
                         // Match native Squarespace headers exactly
                         xhr.setRequestHeader('accept', 'application/json, text/plain, */*');
@@ -5612,6 +5615,13 @@
                     console.log('🎬 Video src:', video.src);
                     console.log('🎬 Video readyState:', video.readyState);
                     console.log('🎬 HLS levels:', hls.levels);
+                    
+                    // Lock to highest quality to prevent color shifts from quality switching
+                    if (hls.levels && hls.levels.length > 0) {
+                        const highestLevel = hls.levels.length - 1;
+                        hls.currentLevel = highestLevel;
+                        console.log('🎬 ✅ Locked to highest quality level:', highestLevel, hls.levels[highestLevel]);
+                    }
                     
                     // Only attempt autoplay if enabled
                     if (autoplay) {
