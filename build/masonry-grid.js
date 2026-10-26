@@ -1,7 +1,7 @@
 /*!
  * Masonry Grid Gallery Plugin
- * Version: 0.2.6
- * Last Updated: 2026-02-18
+ * Version: 0.2.7
+ * Last Updated: 2026-10-27
  */
 (function() {
     'use strict';
@@ -19,6 +19,8 @@
             this.isAdminMode = false;
             this.activeTab = 0;
             this.hasUnsavedChanges = false;
+            this.configLoadFailed = false; // Saved gallery data exists but couldn't be read
+            this.sectionLoaded = false; // This section's saved data was loaded into the editor
             this.originalData = null;
             this.sectionId = null;
             this.lastClickTime = 0; // For debouncing rapid clicks
@@ -744,7 +746,11 @@
                 
                 this.adminToggleBtn.style.display = 'none'; // Hide the button when drawer is open
                 document.body.classList.add('admin-drawer-open');
-                
+
+                if (this.configLoadFailed) {
+                    this.showAdminFooter("Your gallery couldn't be loaded. Please refresh the page.", 'error', true);
+                }
+
                 // Debug logging for scroll issues
                 console.log('🔍 Admin drawer opened - debugging scroll setup:');
                 console.log('📱 Body classes:', document.body.className);
@@ -4385,41 +4391,140 @@
         }
 
         async loadExternalConfig() {
+            // Returns the saved gallery data, or null if there is none yet.
+            // Sets configLoadFailed if data exists but couldn't be read.
+            this.configLoadFailed = false;
             try {
-                // Check for external widget configuration source
-                const metaTags = document.head.querySelectorAll('meta');
-                let configUrl = null;
+                // 1. Gallery data rendered into the page from Code Injection
+                const script = document.getElementById(this.getConfigScriptId());
+                if (script) {
+                    console.log('✅ Gallery data loaded from page');
+                    return this.parseConfigJson(script.textContent);
+                }
 
-                // Look for plugin license key configuration in page meta
-                for (const tag of metaTags) {
-                    if (tag.getAttribute('squarehero-plugin') === 'masonry-grid') {
-                        // Decode the license key to get configuration URL
-                        const encodedUrl = tag.getAttribute('license-key');
-                        configUrl = atob(encodedUrl);
-                        break;
+                // 2. Older versions: a Custom Files JSON referenced from Code Injection
+                const meta = document.querySelector('meta[squarehero-plugin="masonry-grid"]');
+                if (meta) {
+                    const legacyData = await this.fetchLegacyConfig(atob(meta.getAttribute('license-key')));
+                    if (legacyData) {
+                        console.log('✅ Gallery data loaded from legacy file');
+                        return legacyData;
                     }
                 }
 
-                if (!configUrl) {
-                    console.log('📝 No external configuration found, using empty grid');
-                    return null;
+                // 3. Nothing rendered - e.g. the site's plan no longer outputs Code Injection.
+                // Logged-in editors can still read the saved settings, so the editor shows the
+                // real gallery rather than placeholders.
+                const savedData = await this.loadConfigFromInjectionSettings();
+                if (savedData) {
+                    console.log('✅ Gallery data loaded from saved Code Injection settings');
                 }
+                return savedData;
 
-                console.log('🔗 Loading configuration from:', configUrl);
-                const response = await fetch(configUrl);
-                
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch configuration: ${response.status}`);
-                }
-
-                const data = await response.json();
-                console.log('✅ External configuration loaded successfully');
-                return data;
-                
             } catch (error) {
-                console.error('❌ Error loading external configuration:', error);
+                console.error('❌ Error loading gallery data:', error);
+                this.configLoadFailed = true;
                 return null;
             }
+        }
+
+        async loadConfigFromInjectionSettings() {
+            // Only works for logged-in editors; visitors get null
+            const edgeToken = this.getCdnEdgeToken();
+            if (!edgeToken) {
+                return null;
+            }
+
+            let settings = null;
+            try {
+                settings = await this.apiRequest(window.location.origin + "/api/config/GetInjectionSettings", edgeToken);
+            } catch (error) {
+                return null;
+            }
+
+            const found = settings && this.extractConfigFromHeader(settings.header);
+            if (!found) {
+                return null;
+            }
+            return found.data || await this.fetchLegacyConfig(found.legacyUrl);
+        }
+
+        // --- GALLERY DATA STORAGE ---
+        // Gallery data lives in the site-wide header Code Injection as a JSON script block,
+        // so a save is one request that either fully succeeds or changes nothing. Each save
+        // also uploads a timestamped JSON file to Custom Files as a manual backup.
+
+        getConfigScriptId() {
+            return 'squarehero-masonry-grid-data';
+        }
+
+        parseConfigJson(text) {
+            const data = JSON.parse(text);
+            if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                throw new Error('gallery data is not valid');
+            }
+            return data;
+        }
+
+        extractConfigFromHeader(header) {
+            // Returns { data } for gallery data stored in the header, { legacyUrl } for an
+            // older file reference, or null if the header has no gallery data
+            const scriptMatch = (header || '').match(/<script[^>]*id=["']squarehero-masonry-grid-data["'][^>]*>([\s\S]*?)<\/script>/i);
+            if (scriptMatch) {
+                return { data: this.parseConfigJson(scriptMatch[1]) };
+            }
+            const metaMatch = (header || '').match(/<meta\s+squarehero-plugin=["']?masonry-grid["']?[^>]*license-key=["']([^"']+)["'][^>]*>/i);
+            if (metaMatch) {
+                return { legacyUrl: atob(metaMatch[1]) };
+            }
+            return null;
+        }
+
+        async fetchLegacyConfig(url) {
+            // Returns the data, or null if the file no longer exists or no longer holds gallery data
+            const response = await fetch(url, { cache: 'no-store' });
+            if (response.status === 404 || response.status === 403) {
+                return null;
+            }
+            if (!response.ok) {
+                throw new Error(`could not read gallery data file (HTTP ${response.status})`);
+            }
+
+            // Squarespace can serve .json uploads back as a corrupted object, so only keep
+            // entries that look like gallery sections
+            const data = this.parseConfigJson(await response.text());
+            const sections = {};
+            Object.keys(data).forEach(key => {
+                if (data[key] && Array.isArray(data[key].rows)) {
+                    sections[key] = data[key];
+                }
+            });
+            if (Object.keys(sections).length === 0) {
+                console.warn('⚠️ Legacy gallery data file has no readable gallery sections - ignoring it');
+                return null;
+            }
+            return sections;
+        }
+
+        buildConfigHeaderBlock(config) {
+            // Escape "<" so the data can never close the script tag early
+            const json = JSON.stringify(config).replace(/</g, '\\u003c');
+            return '<!-- Masonry Grid plugin by SquareHero.store - gallery data, do not edit -->\n' +
+                `<script type="application/json" id="${this.getConfigScriptId()}">${json}</script>`;
+        }
+
+        removeConfigFromHeader(header) {
+            let updatedHeader = header || '';
+
+            // Gallery data block, legacy file reference and plugin comments
+            updatedHeader = updatedHeader.replace(/<script[^>]*id=["']squarehero-masonry-grid-data["'][^>]*>[\s\S]*?<\/script>/gi, '');
+            updatedHeader = updatedHeader.replace(/<meta\s+squarehero-plugin=["']?masonry-grid["']?[^>]*>/gi, '');
+            updatedHeader = updatedHeader.replace(/<!--\s*Masonry Grid plugin by SquareHero\.store[\s\S]*?-->/gi, '');
+
+            // Clean up any extra newlines that might have been left behind
+            updatedHeader = updatedHeader.replace(/\n\s*\n\s*\n/g, '\n\n');
+            updatedHeader = updatedHeader.replace(/^\s*\n+/, '');
+            return updatedHeader.trim();
         }
 
         async loadWidgetData() {
@@ -4429,8 +4534,9 @@
                 
                 // Try to load from external config first
                 const externalData = await this.loadExternalConfig();
-                
-                if (externalData && externalData[this.sectionId]) {
+                this.sectionLoaded = !!(externalData && externalData[this.sectionId]);
+
+                if (this.sectionLoaded) {
                     console.log('📊 Using external configuration data');
                     const sectionConfig = externalData[this.sectionId];
                     
@@ -4488,6 +4594,10 @@
 
                 this.renderGrid();
                 this.updateStyles(); // Apply loaded style settings
+
+                if (this.configLoadFailed) {
+                    console.warn('⚠️ Saved gallery data could not be loaded');
+                }
                 console.log('✅ Widget data loaded and rendered successfully');
                 
             } catch (error) {
@@ -4583,69 +4693,120 @@
         }
 
         async saveConfiguration() {
-            try {
-                this.showAdminFooter('Saving configuration...', 'loading', false);
+            if (this.isSaving) return;
+            this.isSaving = true;
 
-                // Serialize current grid configuration
+            // Every failure below happens before or at the single Code Injection save,
+            // so an error always means the saved gallery is unchanged
+            const saveError = message => Object.assign(new Error(message), { userMessage: message });
+
+            try {
+                // Get CSRF token using the CDN edge token method
+                const edgeToken = this.getCdnEdgeToken();
+                if (!edgeToken) {
+                    throw saveError("Couldn't save - please refresh the page and try again.");
+                }
+
+                this.showAdminFooter('Saving...', 'loading', false);
+
+                // Read the saved settings from Squarespace rather than the page, so the merge
+                // always starts from the real saved data
+                const settings = await this.apiRequest(window.location.origin + "/api/config/GetInjectionSettings", edgeToken);
+                if (!settings) {
+                    throw saveError("Couldn't reach Squarespace to save. Your gallery hasn't been changed - please try again.");
+                }
+
+                let fullConfig = {};
+                const found = this.extractConfigFromHeader(settings.header);
+                if (found) {
+                    fullConfig = found.data || await this.fetchLegacyConfig(found.legacyUrl) || {};
+                }
+
+                // Never save over a gallery the editor didn't load - it would be showing placeholders
+                if (this.sectionId && fullConfig[this.sectionId] && !this.sectionLoaded) {
+                    throw saveError("Your gallery couldn't be loaded into the editor, so nothing was saved. Please refresh the page and try again.");
+                }
+
                 const configData = this.serializeGridConfiguration();
                 console.log('📄 Configuration to save:', configData);
-                
-                // Get existing config to merge with current section
-                let fullConfig = {};
-                try {
-                    const existingMeta = document.querySelector('meta[squarehero-plugin="masonry-grid"]');
-                    if (existingMeta) {
-                        const existingUrl = atob(existingMeta.getAttribute('license-key'));
-                        console.log('🔍 Found existing config URL:', existingUrl);
-                        
-                        const response = await fetch(existingUrl);
-                        if (response.ok) {
-                            const existingConfig = await response.json();
-                            fullConfig = existingConfig;
-                        } else {
-                            console.log('📝 No existing config found, creating new');
-                            fullConfig = {};
-                        }
-                    } else {
-                        fullConfig = {};
-                    }
-                } catch (error) {
-                    console.log('📝 Could not load existing config, starting fresh:', error.message);
-                    fullConfig = {};
-                }
-                
-                console.log('🔧 Full config before update:', fullConfig);
-                
+
                 // Store config by section ID to support multiple sections
                 if (this.sectionId) {
                     fullConfig[this.sectionId] = configData;
-                    console.log('📊 Section data saved:', fullConfig[this.sectionId]);
                 } else {
                     // Fallback: save directly if no section ID
                     fullConfig = configData;
                 }
-                
-                console.log('🎯 Final config to save:', fullConfig);
-                
-                // Create JSON blob and upload to CSS assets
-                const configContent = JSON.stringify(fullConfig, null, 2);
-                const blob = new Blob([configContent], { type: 'application/json' });
-                
-                // Get CSRF token using the CDN edge token method
-                const edgeToken = this.getCdnEdgeToken();
-                if (!edgeToken) {
-                    throw new Error('CDN edge token required - please refresh and try again');
-                }
-                
-                // Cleanup existing cached configuration
-                await this.removeExistingMasonryConfig(edgeToken);
-                
-                // Upload to CSS assets
+
+                const otherHeader = this.removeConfigFromHeader(settings.header);
+                const updatedHeader = (otherHeader ? otherHeader + '\n' : '') + this.buildConfigHeaderBlock(fullConfig);
+
+                await this.saveInjectionHeader(settings, updatedHeader, edgeToken);
+                console.log('✅ Gallery data saved to Code Injection');
+
+                this.sectionLoaded = true;
+                this.configLoadFailed = false;
+
+                // Backup copy in Custom Files - never blocks or fails the save
+                await this.backupConfig(fullConfig, edgeToken);
+
+                this.originalData = JSON.parse(JSON.stringify(this.gridData));
+                this.hasUnsavedChanges = false;
+                this.clearTempRowImages(); // Clear temporary image storage after saving
+                this.showAdminFooter('Saved!', 'success', false);
+
+                setTimeout(() => {
+                    this.hideAdminFooter();
+                }, 2000);
+
+            } catch (error) {
+                console.error('Save error:', error);
+                this.showAdminFooter(error.userMessage || "Something went wrong while saving. Your gallery hasn't been changed - please try again.", 'error', true);
+            } finally {
+                this.isSaving = false;
+            }
+        }
+
+        async saveInjectionHeader(currentSettings, header, edgeToken) {
+            const formBody = new URLSearchParams({
+                header: header,
+                footer: currentSettings.footer || '',
+                lockPage: currentSettings.lockPage || '',
+                postItem: currentSettings.postItem || ''
+            });
+
+            const saveResponse = await fetch(window.location.origin + "/api/config/SaveInjectionSettings", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/x-www-form-urlencoded",
+                    "x-csrf-token": edgeToken,
+                },
+                credentials: "include",
+                body: formBody
+            });
+
+            if (!saveResponse.ok) {
+                const responseText = await saveResponse.text().catch(() => '');
+                console.error(`SaveInjectionSettings failed (HTTP ${saveResponse.status}):`, responseText);
+
+                const message = /code injection/i.test(responseText)
+                    ? "Couldn't save - this site's Squarespace plan doesn't include Code Injection, which the gallery needs. Your gallery hasn't been changed."
+                    : "Couldn't save to Squarespace. Your gallery hasn't been changed - please try again.";
+                throw Object.assign(new Error(message), { userMessage: message });
+            }
+        }
+
+        async backupConfig(config, edgeToken) {
+            // Uploads a timestamped copy to Custom Files and keeps the newest few, so a bad save
+            // can be restored by pasting a backup's contents into the Code Injection data block
+            try {
+                const filename = this.buildConfigFilename();
+                // Uploaded as .css/text-css: Squarespace's css-assets store mangles application/json
+                // uploads, while .css round-trips clean. The contents are still plain JSON.
+                const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'text/css' });
                 const formData = new FormData();
-                // Base64 encode filename for CDN optimization routing
-                const encodedFilename = btoa('masonry-manifest.json') + '.json';
-                formData.append('file', blob, encodedFilename);
-                
+                formData.append('file', blob, filename);
+
                 const uploadResponse = await fetch(`${window.location.origin}/api/uploads/css-assets`, {
                     method: 'POST',
                     headers: {
@@ -4654,47 +4815,16 @@
                     body: formData,
                     credentials: 'include'
                 });
-                
+
                 if (!uploadResponse.ok) {
-                    throw new Error(`Upload failed: ${uploadResponse.status} ${uploadResponse.statusText}`);
+                    throw new Error(`upload failed (HTTP ${uploadResponse.status})`);
                 }
-                
-                const uploadResult = await uploadResponse.json();
-                console.log('📤 Upload result:', uploadResult);
-                
-                // Extract reference from the response
-                let configUrl = null;
-                if (uploadResult.media && uploadResult.media.length > 0) {
-                    const mediaItem = uploadResult.media[0];
-                    configUrl = mediaItem.staticUrl || mediaItem.url || mediaItem.assetUrl;
-                } else {
-                    configUrl = uploadResult.staticUrl || uploadResult.url || uploadResult.assetUrl;
-                }
-                
-                if (!configUrl) {
-                    throw new Error('No URL returned from upload');
-                }
-                
-                console.log('🔗 Config uploaded to:', configUrl);
+                console.log(`💾 Backup saved: ${filename}`);
 
-                const success = await this.updateConfigReference(configUrl);
-
-                if (success) {
-                    this.originalData = JSON.parse(JSON.stringify(this.gridData));
-                    this.hasUnsavedChanges = false;
-                    this.clearTempRowImages(); // Clear temporary image storage after saving
-                    this.showAdminFooter('Configuration saved successfully!', 'success', false);
-                    
-                    setTimeout(() => {
-                        this.hideAdminFooter();
-                    }, 2000);
-                } else {
-                    this.showAdminFooter('Failed to save configuration. Please try again.', 'error', true);
-                }
+                await this.pruneMasonryConfigs(filename, edgeToken);
 
             } catch (error) {
-                console.error('Save error:', error);
-                this.showAdminFooter('Error saving configuration: ' + error.message, 'error', true);
+                console.warn('⚠️ Backup failed (the gallery itself was saved):', error.message);
             }
         }
 
@@ -4706,46 +4836,10 @@
             // Get accordion settings - not implemented in current interface, default to false
             const accordionEnabled = false;
             
-            // Serialize current grid data
-            const items = [];
-            if (this.gridData && Array.isArray(this.gridData)) {
-                this.gridData.forEach((row, rowIndex) => {
-                    if (row.items && Array.isArray(row.items)) {
-                        row.items.forEach((item, itemIndex) => {
-                            items.push({
-                                id: item.id || `row-${rowIndex}-item-${itemIndex}`,
-                                content: item.content || '',
-                                imageUrl: item.imageUrl || '',
-                                title: item.title || '',
-                                description: item.description || '',
-                                type: item.type || 'image',
-                                rowIndex: rowIndex,
-                                itemIndex: itemIndex
-                            });
-                        });
-                    }
-                });
-            }
-            
-            // If no grid data yet, create a basic structure
-            if (items.length === 0) {
-                items.push({
-                    id: 'default-item-1',
-                    content: 'Sample content',
-                    imageUrl: 'https://via.placeholder.com/400x300',
-                    title: 'Sample Item',
-                    description: 'This is a sample masonry grid item',
-                    type: 'image',
-                    rowIndex: 0,
-                    itemIndex: 0
-                });
-            }
-            
             return {
                 layout: layoutOption,
                 accordion: accordionEnabled,
                 rows: this.gridData || [],
-                items: items,
                 styleSettings: this.styleSettings || {
                     rowGap: 50,
                     itemGap: 50,
@@ -4760,12 +4854,31 @@
             };
         }
 
-        async removeExistingMasonryConfig(edgeToken) {
+        getConfigFilenameBase() {
+            // Base64 encode filename for CDN optimization routing
+            return btoa('masonry-manifest.json');
+        }
+
+        buildConfigFilename() {
+            // Backup filename, e.g. <base>-20261027-141205.css (UTC) - sorts by name in save order
+            const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+            return `${this.getConfigFilenameBase()}-${stamp}.css`;
+        }
+
+        getConfigFileStamp(filename) {
+            const match = filename.match(/-(\d{8}-\d{6})\.css$/);
+            return match ? match[1] : '';
+        }
+
+        async findExistingMasonryConfigs(edgeToken) {
+            // Returns { siteId, tplId, configs } for the timestamped .css backup files in Custom
+            // Files, or null if they can't be listed. The single .json file older versions used
+            // is deliberately left out so it's never removed automatically.
             try {
                 // Get site identifier for CDN cache invalidation
                 const siteData = await this.apiRequest("/api/v1/commerce-preferences/onboarding", edgeToken);
                 if (!siteData?.websiteId) {
-                    return false;
+                    return null;
                 }
                 const siteId = siteData.websiteId;
 
@@ -4775,14 +4888,45 @@
 
                 const assetList = await this.apiRequest(assetsUrl, edgeToken);
                 if (!assetList?.assets) {
-                    return false;
+                    return null;
                 }
 
-                // Find existing masonry configuration files for cache purging
-                const encodedFilename = btoa('masonry-manifest.json') + '.json';
-                const existingConfigs = assetList.assets.filter(asset => asset.filename === encodedFilename);
+                // Find masonry backup files
+                const base = this.getConfigFilenameBase();
+                const configs = assetList.assets.filter(asset => {
+                    const filename = asset.filename || '';
+                    return filename.startsWith(`${base}-`) && filename.endsWith('.css');
+                });
 
-                if (existingConfigs.length === 0) {
+                return { siteId, tplId, configs };
+
+            } catch (error) {
+                console.warn('⚠️ Could not list existing config files:', error.message);
+                return null;
+            }
+        }
+
+        async pruneMasonryConfigs(newFilename, edgeToken) {
+            // Keeps the newest backup files and removes the rest. Failures here just leave
+            // extra old files behind, so they are logged rather than reported.
+            const KEEP_VERSIONS = 5;
+            try {
+                const existing = await this.findExistingMasonryConfigs(edgeToken);
+                if (!existing) {
+                    return false;
+                }
+                const { siteId, tplId, configs } = existing;
+
+                // Newest first; the backup just uploaded always stays, even if the editor's
+                // clock is wrong and it sorts as older
+                const sorted = configs
+                    .filter(config => config.id)
+                    .sort((a, b) => this.getConfigFileStamp(b.filename).localeCompare(this.getConfigFileStamp(a.filename)));
+                const newest = sorted.filter(config => config.filename === newFilename);
+                const others = sorted.filter(config => config.filename !== newFilename);
+                const toRemove = others.slice(Math.max(0, KEEP_VERSIONS - newest.length));
+
+                if (toRemove.length === 0) {
                     return false;
                 }
 
@@ -4790,7 +4934,7 @@
                 const removeEndpoint = `https://${window.location.host}/api/template/RemoveTemplateCSSAsset`;
                 let removedCount = 0;
 
-                for (const config of existingConfigs) {
+                for (const config of toRemove) {
                     try {
                         const removeBody = {
                             templateId: tplId,
@@ -4814,74 +4958,6 @@
 
             } catch (error) {
                 console.warn('⚠️ Cache cleanup failed:', error.message);
-                return false;
-            }
-        }
-
-        async updateConfigReference(configRef) {
-            try {
-                const edgeToken = this.getCdnEdgeToken();
-                if (!edgeToken) {
-                    return false;
-                }
-
-                // Get current header settings for CDN optimization
-                const currentSettings = await this.apiRequest(
-                    window.location.origin + "/api/config/GetInjectionSettings",
-                    edgeToken
-                );
-
-                if (!currentSettings) {
-                    return false;
-                }
-
-                // Update plugin license key reference (Base64 encoded for security)
-                const encodedConfigRef = btoa(configRef);
-                const configTag = '<!-- Masonry Grid plugin by SquareHero.store - Do not remove -->\n<meta squarehero-plugin="masonry-grid" license-key="' + encodedConfigRef + '">';
-
-                let updatedHeader = currentSettings.header || '';
-
-                // Remove existing plugin license key reference (including comments)
-                const configRegex = new RegExp('<!--\\s*Masonry Grid plugin by SquareHero\\.store[^>]*>\\s*\\n?\\s*<meta\\s+squarehero-plugin=["\']?(masonry-grid)["\']?[^>]*>', 'gi');
-                updatedHeader = updatedHeader.replace(configRegex, '');
-
-                // Also remove any standalone comments that might have been left
-                const commentRegex = new RegExp('<!--\\s*Masonry Grid plugin by SquareHero\\.store[^>]*>', 'gi');
-                updatedHeader = updatedHeader.replace(commentRegex, '');
-
-                // Clean up any extra newlines that might have been left behind
-                updatedHeader = updatedHeader.replace(/\n\s*\n\s*\n/g, '\n\n');
-                updatedHeader = updatedHeader.replace(/^\s*\n+/, '');
-                updatedHeader = updatedHeader.trim();
-
-                // Add new configuration reference with proper spacing
-                if (updatedHeader) {
-                    updatedHeader += '\n' + configTag;
-                } else {
-                    updatedHeader = configTag;
-                }
-
-                // Save updated settings
-                const formBody = new URLSearchParams({
-                    header: updatedHeader,
-                    footer: currentSettings.footer || '',
-                    lockPage: currentSettings.lockPage || '',
-                    postItem: currentSettings.postItem || ''
-                });
-
-                const saveResponse = await fetch(window.location.origin + "/api/config/SaveInjectionSettings", {
-                    method: "POST",
-                    headers: {
-                        "content-type": "application/x-www-form-urlencoded",
-                        "x-csrf-token": edgeToken,
-                    },
-                    credentials: "include",
-                    body: formBody
-                });
-
-                return saveResponse.ok;
-
-            } catch (error) {
                 return false;
             }
         }
